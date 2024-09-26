@@ -1,0 +1,117 @@
+<html>
+  <head>
+    <title>Numderline Test</title>
+    <style type="text/css">
+      @font-face {
+        font-family: "testfont";
+        src: url("output.ttf");
+      }
+
+      .font-null {
+        font-family: "testfont";
+        font-feature-settings: -"dgsp";
+      }
+
+      .font-spaced {
+        font-family: "testfont";
+        font-feature-settings: "dgsp", "tnum";
+      }
+
+      .font-commas {
+        font-family: "testfont";
+        font-feature-settings: "dgco", "tnum";
+      }
+
+      .font-apostrophes {
+        font-family: "testfont";
+        font-feature-settings: "dgap", "tnum";
+      }
+
+      .font-dots {
+        font-family: "testfont";
+        font-feature-settings: "dgdc", "dgdo", "tnum";
+      }
+
+      .font-hexadecimal {
+        font-family: "testfont";
+        font-feature-settings: "dghx", "dgsp", "tnum";
+      }
+
+      .test-table:after {
+        content:     "3141\a"
+                    "31415\a"
+                 "31415926\a"
+                "314159265\a"
+               "3141592653\a"
+              "31415926535\a"
+     "  3.1415926535987932\a"
+     "  31.415926535987932\a"
+     "  314.15926535987932\a"
+     "  3141.5926535987932\a"
+     "  31415.926535987932\a"
+     "  314159.26535987932\a"
+     "  3141592.6535987932\a"
+     "  31415926.535987932\a"
+     "  314159265.35987932\a"
+     "  3141592653.5987932\a"
+     "  31415926535.987932\a"
+                   "0x2718\a"
+                  "0x27182\a"
+                "0x2718281\a"
+               "0x27182818\a"
+              "0x271828182\a"
+             "0x2718281828\a"
+            "0x27182818284\a"
+   "  One million dollars!\a"
+             "$10000000.00\a"
+           "CAD13482200.00\a"
+             "H0c012355abc\a"
+             "Z1234x567890\a"
+                  "#ff00ff\a"
+                "'h1234567\a"
+       "the range 1..10000\a"
+      "1.23..10000.3400000\a"
+       "c = (10000,200000)\a"
+          "(1.5000,2.4000)\a"
+         "&thinsp;: 12 345\a"
+               "raw: 12345";
+      }
+    </style>
+  </head>
+  <body>
+    <textarea class="font-spaced" style="width:800px;height:120px">
+      Typing in here doesn't seem very reliable on some browsers.
+      321 4321 54321 0x123456 0b10101010 3.14159
+    </textarea>
+    <div class="font-null">
+      321 │ 4321 │ 54321 │ 654321 │ 98765432109876543210987654321.09876543210 │ 0x123456 │<br/>
+    </div>
+    <div class="font-spaced">
+      321 │ 4321 │ 54321 │ 654321 │ 98765432109876543210987654321.09876543210 │ 0x123456 │<br/>
+    </div>
+    <div class="font-commas">
+      321 │ 4321 │ 54321 │ 654321 │ 98765432109876543210987654321.09876543210 │ 0x123456 │<br/>
+    </div>
+    <div class="font-apostrophes">
+      321 │ 4321 │ 54321 │ 654321 │ 98765432109876543210987654321.09876543210 │ 0x123456 │<br/>
+    </div>
+    <div class="font-dots">
+      321 │ 4321 │ 54321 │ 654321 │ 98765432109876543210987654321,09876543210 │ 0x123456 │<br/>
+    </div>
+    <div class="font-dots">
+      321 │ 4321 │ 54321 │ 654321 │ 98765432109876543210987654321.09876543210 │ 0x123456 │<br/>
+    </div>
+    <div class="font-hexadecimal">
+      321 │ 4321 │ 54321 │ 654321 │ 98765432109876543210987654321.09876543210 │ 0x123456 │<br/>
+    </div>
+
+<div class="container" style="display: flex;">
+<div><div align="center">""</div> <pre class="font-null test-table" align="right" /> </div>
+<div><div align="center">"dgsp"</div> <pre class="font-spaced test-table" align="right" /> </div>
+<div><div align="center">"dgco"</div> <pre class="font-commas test-table" align="right" /> </div>
+<div><div align="center">"dgap"</div> <pre class="font-apostrophes test-table" align="right" /> </div>
+<div><div align="center">"dgdc,dgdo"</div> <pre class="font-dots test-table" align="right" /> </div>
+<div><div align="center">"dghx,dgsp"</div> <pre class="font-hexadecimal test-table" align="right" /> </div>
+</div>
+</body>
+</html>
