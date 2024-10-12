@@ -34,7 +34,8 @@ def collect_equivalents(font, basis='0123456789'):
         # TODO: should recurse, maybe...
         #result |= additions
         if additions:
-            print(f'  would add {str(additions)} to {name}')
+            #print(f'  would add {str(additions)} to {name}')
+            pass
     return result
 
 
@@ -84,6 +85,21 @@ def slide_glyph(font, name, distance):
     glyph.left_side_bearing = int(glyph.left_side_bearing) + distance
 
 
+def rename_font(font):
+    oldname = font.familyname
+    while oldname not in font.fontname and ' ' in oldname:
+      # Sometimes things get tangled into the font name that don't belong
+      # there.  Hopefully this can strip those off.
+      oldname = oldname.rsplit(' ', 1)[0]
+    newname = oldname + 'DG'
+    font.familyname = font.familyname.replace(oldname, newname)
+    font.fullname = font.fullname.replace(oldname, newname)
+    font.fontname = font.fontname.replace(oldname, newname)
+    for t in font.sfnt_names:
+        if oldname in t[2] and newname not in t[2]:
+            font.appendSFNTName(t[0], t[1], t[2].replace(oldname, newname))
+
+
 def patch_a_font(font, monospace, gap_size, shrink_x, shrink_y):
     font.encoding = 'ISO10646'
 
@@ -121,8 +137,8 @@ def patch_a_font(font, monospace, gap_size, shrink_x, shrink_y):
         else:
             resize_glyph(font, gn, gap_size)
 
-    print(f'decimals: {dec_group}')
-    print(f'hexadecimals: {hex_group}')
+    #print(f'decimals: {dec_group}')
+    #print(f'hexadecimals: {hex_group}')
 
     classes = {
         'dec': dec_group,
@@ -358,6 +374,8 @@ def patch_a_font(font, monospace, gap_size, shrink_x, shrink_y):
         for r in rules:
             new_ctx_subtable('coverage', r)
 
+    rename_font(font)
+
     font.generateFeatureFile('output.fea')
     return font
 
@@ -369,8 +387,10 @@ def main(font_list, **kwargs):
             font_id = f'{font_file.name}({font_name})'
             font = fontforge.open(font_id)
             results.append(patch_a_font(font, **kwargs))
+            print('patched: ', font.fullname)
     if len(results) > 1:
-        results[0].generateTtc('output.ttc', results[1:])
+        results[0].generateTtc('output.ttc', results[1:],
+                ttcflags=('merge',), layer=results[0].activeLayer)
     else:
         results[0].generate('output.ttf')
     for font in results: font.close()
