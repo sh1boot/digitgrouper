@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import argparse
 import fontforge
+import re
+import psMat
 
 DECIMAL_LIST = '0123456789'
 HEXADECIMAL_LIST = '0123456789abcdefABCDEF'
@@ -16,26 +18,25 @@ MAIN_FEATURE = ('dgsp', SCRIPTS)
 COMMA_FEATURE = ('dgco', SCRIPTS)
 APSTR_FEATURE = ('dgap', SCRIPTS)
 DOT_FEATURE = ('dgdo', SCRIPTS)
+ALWAYS_ON_FEATURE = ('calt', SCRIPTS)
 ALL_MODES = (MAIN_FEATURE, COMMA_FEATURE, APSTR_FEATURE, DOT_FEATURE)
 HEXADECIMAL_MODE = (('dghx', SCRIPTS),)
 DECIMAL_COMMA_MODE = (('dgdc', SCRIPTS),)
 
 
-def collect_equivalents(font, basis='0123456789'):
+def collect_equivalents(font, basis='0123456789', use_gsubs=False):
     result = set()
     for c in basis:
         glyph = font[ord(c)]
         name = glyph.glyphname
         result.add(name)
-        additions = set()
-        for sub in glyph.getPosSub('*'):
-            if sub[1] in { 'Substitution', 'AltSubs', 'MultSubs' }:
-                additions |= set(sub[2:])
-        # TODO: should recurse, maybe...
-        #result |= additions
-        if additions:
-            #print(f'  would add {str(additions)} to {name}')
-            pass
+        if use_gsubs:
+            additions = set()
+            for sub in glyph.getPosSub('*'):
+                if sub[1] in { 'Substitution', 'AltSubs', 'MultSubs' }:
+                    additions |= set(sub[2:])
+            # TODO: should recurse, maybe...
+            result |= additions
     return result
 
 
@@ -63,12 +64,15 @@ def find_gap_size(font, gap_size):
     return gap_size
 
 
-def new_glyph(font, name, source=None):
+def new_glyph(font, name, source=None, hshift=None):
     glyph = font.createChar(-1, name)
     if source:
-        glyph.addReference(source)
-        glyph.left_side_bearing = int(font[source].left_side_bearing)
-        glyph.right_side_bearing = int(font[source].right_side_bearing)
+        if hshift:
+            glyph.addReference(source, psMat.translate(hshift, 0))
+        else:
+            glyph.addReference(source)
+            glyph.left_side_bearing = int(font[source].left_side_bearing)
+            glyph.right_side_bearing = int(font[source].right_side_bearing)
         glyph.width = int(font[source].width)
     return glyph
 
@@ -100,7 +104,7 @@ def rename_font(font):
             font.appendSFNTName(t[0], t[1], t[2].replace(oldname, newname))
 
 
-def patch_a_font(font, monospace, gap_size, shrink_x, shrink_y):
+def patch_a_font(font, monospace, terminal, final_rules, gap_size, shrink_x, shrink_y, move_less=False):
     font.encoding = 'ISO10646'
 
     gap_size = find_gap_size(font, gap_size)
@@ -121,9 +125,9 @@ def patch_a_font(font, monospace, gap_size, shrink_x, shrink_y):
         new_glyph(font, f'thsp.apostrophe{d}', apostrophe)
         new_glyph(font, f'thsp.dot{d}', dot)
 
-    dec_group = collect_equivalents(font, '0123456789')
-    hex_group = dec_group | collect_equivalents(font, 'abcdefABCDEF')
-    dsep_group = collect_equivalents(font, '.,')
+    dec_group = collect_equivalents(font, '0123456789', final_rules)
+    hex_group = dec_group | collect_equivalents(font, 'abcdefABCDEF', final_rules)
+    dsep_group = collect_equivalents(font, '.,', final_rules)
     capture_group = ['thsp.capture3','thsp.capture4','thsp.capture5','thsp.avoid']
     separator_group = set()
     for d in [3,4,5]:
@@ -140,6 +144,20 @@ def patch_a_font(font, monospace, gap_size, shrink_x, shrink_y):
     #print(f'decimals: {dec_group}')
     #print(f'hexadecimals: {hex_group}')
 
+    adjustments = {
+        'lf_1_6': -1 * (gap_size // 6),
+        'rt_1_6':  1 * (gap_size // 6),
+        'lf_1_4': -1 * (gap_size // 4),
+        'rt_1_4':  1 * (gap_size // 4),
+        'lf_1_2': -1 * (gap_size // 2),
+        'rt_1_2':  1 * (gap_size // 2),
+        'lf_3_4': -3 * (gap_size // 4),
+        'rt_1_3':  1 * (gap_size // 3),
+        'rt_2_3':  2 * (gap_size // 3),
+        'lf_1_1': -1 * (gap_size // 1),
+        'rt_1_1':  1 * (gap_size // 1),
+    }
+
     classes = {
         'dec': dec_group,
         'hex': hex_group,
@@ -154,18 +172,28 @@ def patch_a_font(font, monospace, gap_size, shrink_x, shrink_y):
         'cap5': ['thsp.capture5'],
         'avoid': ['thsp.avoid'],
         'anycap': capture_group,
-        'zero': collect_equivalents(font, '0'),
-        'xx': collect_equivalents(font, 'bBoOxX'),
-        'dot': collect_equivalents(font, '.'),
-        'comma': collect_equivalents(font, ','),
+        'zero': collect_equivalents(font, '0', final_rules),
+        'xx': collect_equivalents(font, 'bBoOxX', final_rules),
+        'dot': collect_equivalents(font, '.', final_rules),
+        'comma': collect_equivalents(font, ',', final_rules),
         'dotsep5': dsep_group | {'thsp.sep5','thsp.comma5','thsp.apostrophe5','thsp.dot5'},
     }
+    for name in adjustments.keys():
+        classes['hex_'+name] = classes['hex']
+        classes['dec_'+name] = classes['dec']
+        if terminal:
+            classes['hex_'+name] = [ v+'.'+name for v in classes['hex'] ]
+            classes['dec_'+name] = [ v+'.'+name for v in classes['dec'] ]
     classes_fmt = {
         k: '[ ' + ' '.join(v) + ' ]' for k,v in classes.items()
     }
 
     curr_lookup = None
     subtable_index = 0
+
+    if final_rules:
+        curr_lookup = font.gsub_lookups[-1]
+
     def new_lookup(name, lu_type, features=()):
         nonlocal curr_lookup, subtable_index
         if curr_lookup:
@@ -306,34 +334,6 @@ def patch_a_font(font, monospace, gap_size, shrink_x, shrink_y):
         glyph.addPosSub('dot_separator', f'thsp.dot{d}')
 
     if monospace:
-        # switch to gpos
-        curr_lookup = None
-
-        new_glyph_rule('lf_1_6', 'gpos_single')
-        new_glyph_rule('rt_1_6', 'gpos_single')
-        new_glyph_rule('lf_1_4', 'gpos_single')
-        new_glyph_rule('rt_1_4', 'gpos_single')
-        new_glyph_rule('lf_1_2', 'gpos_single')
-        new_glyph_rule('rt_1_2', 'gpos_single')
-        new_glyph_rule('lf_3_4', 'gpos_single')
-        new_glyph_rule('rt_2_3', 'gpos_single')
-        new_glyph_rule('rt_1_3', 'gpos_single')
-        new_glyph_rule('lf_1_1', 'gpos_single')
-        new_glyph_rule('rt_1_1', 'gpos_single')
-        for g in hex_group:
-            font[g].addPosSub('lf_1_6',-1 * (gap_size // 6), 0, 0, 0)
-            font[g].addPosSub('rt_1_6', 1 * (gap_size // 6), 0, 0, 0)
-            font[g].addPosSub('lf_1_4',-1 * (gap_size // 4), 0, 0, 0)
-            font[g].addPosSub('rt_1_4', 1 * (gap_size // 4), 0, 0, 0)
-            font[g].addPosSub('lf_1_2',-1 * (gap_size // 2), 0, 0, 0)
-            font[g].addPosSub('rt_1_2', 1 * (gap_size // 2), 0, 0, 0)
-            font[g].addPosSub('lf_3_4',-3 * (gap_size // 4), 0, 0, 0)
-            font[g].addPosSub('rt_1_3', 1 * (gap_size // 3), 0, 0, 0)
-            font[g].addPosSub('rt_2_3', 2 * (gap_size // 3), 0, 0, 0)
-            font[g].addPosSub('lf_1_1',-1 * (gap_size // 1), 0, 0, 0)
-            font[g].addPosSub('rt_1_1', 1 * (gap_size // 1), 0, 0, 0)
-
-        new_lookup('pinch_digits', 'gpos_contextchain', ALL_MODES)
         # I believe it's legal to fold all the lookups onto one line, but
         # fontforge doesn't seem to support it, so this is unrolled.  It might
         # be that the multi-lookup form of the table was always split into
@@ -341,17 +341,17 @@ def patch_a_font(font, monospace, gap_size, shrink_x, shrink_y):
 
         # TODO: user-selectable decision, here; including a third "away from
         # separator" mode.
-        if False:
+        if move_less:
             rules = [
                 '{dotsep5} | {dec} @<rt_1_2> | {dec} {dec} {dec} {dec} {anysep5}',
-                '{dotsep5} {dec} | {dec} @<rt_1_4> | {dec} {dec} {dec} {anysep5}',
+                '{dotsep5} {dec_rt_1_2} | {dec} @<rt_1_4> | {dec} {dec} {dec} {anysep5}',
                 # middle digit doesn't move
-                '{dotsep5} {dec} {dec} {dec} | {dec} @<lf_1_4> | {dec} {anysep5}',
-                '{dotsep5} {dec} {dec} {dec} {dec} | {dec} @<lf_1_2> | {anysep5}',
+                '{dotsep5} {dec_rt_1_2} {dec_rt_1_4} {dec} | {dec} @<lf_1_4> | {dec} {anysep5}',
+                '{dotsep5} {dec_rt_1_2} {dec_rt_1_4} {dec} {dec_lf_1_4} | {dec} @<lf_1_2> | {anysep5}',
                 '{anysep4} | {hex} @<rt_1_2> | {hex} {hex} {hex}',
-                '{anysep4} {hex} | {hex} @<rt_1_6> | {hex} {hex}',
-                '{anysep4} {hex} {hex} | {hex} @<lf_1_6> | {hex}',
-                '{anysep4} {hex} {hex} {hex} | {hex} @<lf_1_2> |',
+                '{anysep4} {hex_rt_1_2} | {hex} @<rt_1_6> | {hex} {hex}',
+                '{anysep4} {hex_rt_1_2} {hex_rt_1_6} | {hex} @<lf_1_6> | {hex}',
+                '{anysep4} {hex_rt_1_2} {hex_rt_1_6} {hex_lf_1_6} | {hex} @<lf_1_2> |',
                 '{anysep3} | {dec} @<rt_1_2> | {dec} {dec}',
                 # middle digit doesn't move
                 '{anysep3} {dec} {dec} | {dec} @<lf_1_2> |',
@@ -360,34 +360,70 @@ def patch_a_font(font, monospace, gap_size, shrink_x, shrink_y):
             rules = [
                 # first digit doesn't move
                 '{dotsep5} {dec} | {dec} @<lf_1_4> | {dec} {dec} {dec} {anysep5}',
-                '{dotsep5} {dec} {dec} | {dec} @<lf_1_2> | {dec} {dec} {anysep5}',
-                '{dotsep5} {dec} {dec} {dec} | {dec} @<lf_3_4> | {dec} {anysep5}',
-                '{dotsep5} {dec} {dec} {dec} {dec} | {dec} @<lf_1_1> | {anysep5}',
+                '{dotsep5} {dec} {dec_lf_1_4} | {dec} @<lf_1_2> | {dec} {dec} {anysep5}',
+                '{dotsep5} {dec} {dec_lf_1_4} {dec_lf_1_2} | {dec} @<lf_3_4> | {dec} {anysep5}',
+                '{dotsep5} {dec} {dec_lf_1_4} {dec_lf_1_2} {dec_lf_3_4} | {dec} @<lf_1_1> | {anysep5}',
                 '{anysep4} | {hex} @<rt_1_1> | {hex} {hex} {hex}',
-                '{anysep4} {hex} | {hex} @<rt_2_3> | {hex} {hex}',
-                '{anysep4} {hex} {hex} | {hex} @<rt_1_3> | {hex}',
+                '{anysep4} {hex_rt_1_1} | {hex} @<rt_2_3> | {hex} {hex}',
+                '{anysep4} {hex_rt_1_1} {hex_rt_2_3} | {hex} @<rt_1_3> | {hex}',
                 # last digit doesn't move
                 '{anysep3} | {dec} @<rt_1_1> | {dec} {dec}',
-                '{anysep3} {dec} | {dec} @<rt_1_2> | {dec}',
+                '{anysep3} {dec_rt_1_1} | {dec} @<rt_1_2> | {dec}',
                 # last digit doesn't move
             ]
+
+        useful_adjustments = {}
+        pat = re.compile(r'{([a-z_0-9]+)} @<([a-z_0-9]+)>')
+        for r in rules:
+            match = pat.search(r)
+            name, digits = match.group(2, 1)
+            digits = set(classes[digits])
+            digits |= useful_adjustments.get(name, set())
+            useful_adjustments[name] = digits
+        # TODO: use above result
+
+        if terminal:
+            for name, adjustment in adjustments.items():
+                new_glyph_rule(name, 'gsub_single')
+                for g in hex_group:
+                    adjusted_g = g+'.'+name
+                    new_glyph(font, adjusted_g, g, adjustment)
+                    font[g].addPosSub(name, adjusted_g)
+
+            new_lookup('pinch_digits', 'gsub_contextchain', ALL_MODES)
+        else:
+            # switch to gpos
+            curr_lookup = None
+
+            for name, adjustment in adjustments.items():
+                new_glyph_rule(name, 'gpos_single')
+                for g in hex_group:
+                    font[g].addPosSub(name, adjustment, 0, 0, 0)
+
+            new_lookup('pinch_digits', 'gpos_contextchain', ALL_MODES)
+
         for r in rules:
             new_ctx_subtable('coverage', r)
 
     rename_font(font)
 
-    font.generateFeatureFile('output.fea')
     return font
 
 
-def main(font_list, **kwargs):
+def main(font_list, separate_files=False, always_on=False, **kwargs):
+    global ALL_MODES
+    if always_on:
+        ALL_MODES = (*ALL_MODES, ALWAYS_ON_FEATURE)
     results = []
     for font_file in font_list:
         for font_name in fontforge.fontsInFile(font_file.name):
             font_id = f'{font_file.name}({font_name})'
             font = fontforge.open(font_id)
             results.append(patch_a_font(font, **kwargs))
-            print('patched: ', font.fullname)
+            if separate_files:
+                font.generate(f'{font.fullname}.ttf')
+                font.generateFeatureFile(f'{font.fullname}.fea')
+                print('saved: ', font.fullname)
     if len(results) > 1:
         results[0].generateTtc('output.ttc', results[1:],
                 ttcflags=('merge',), layer=results[0].activeLayer)
@@ -406,12 +442,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=('Add font-based digit grouping. ')
     )
-    parser.add_argument('font_list', metavar='font', nargs='*',
+    parser.add_argument('font_list', metavar='font', nargs='+',
             type=argparse.FileType('rb'), help='font files to patch')
 
     parser.add_argument('--monospace', default=False,
             action='store_true',
             help='Squeeze numbers together to fit original spacing')
+    parser.add_argument('--terminal', default=False,
+            action='store_true',
+            help='Use GSUB instead of GPOS rules, creating new glyphs')
+    parser.add_argument('--final-rules', default=False,
+            action='store_true',
+            help='Insert new rules as last GSUB rules, not first.')
+    parser.add_argument('--always-on', default=False,
+            action='store_true',
+            help='List tables under `calt` feature, always on')
     parser.add_argument('--gap-size', type=str, default=",",
             help='size of space for thousand separator, try 300 or ","')
     parser.add_argument('--shrink_x', type=float_or_pct, default=1.0,
@@ -420,4 +465,7 @@ if __name__ == "__main__":
     parser.add_argument('--shrink_y', type=float_or_pct, default=1.0,
             help='vertical scale to apply to the digits being'
                 ' repositioned')
+    parser.add_argument('--separate-files', default=False,
+            action='store_true',
+            help='Write every font to a separate file.')
     main(**vars(parser.parse_args()))
