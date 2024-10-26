@@ -14,45 +14,72 @@ here](https://www.xn--tkuka-m3a3v.dev/thousand-separators-in-font/), for whateve
 
 ## Usage
 ```
-digitgrouper.py [-h] [--monospace] [--terminal] [--final-rules]
-                [--gap-size GAP_SIZE] [--shrink_x SHRINK_X]
-                [--shrink_y SHRINK_Y] [--separate-files]
-                font [font ...]
+digitgrouper.py [-h] [-o [filename]] [--monospace] [--terminal]
+                [--before] [--always-on [feature]] [--huddle]
+                [--gap-size GAP_SIZE] [--rename [suffix]] [--no-rename]
+                filename [filename ...]
 ```
 
+`--output`
+Output filename.  If it ends with .ttc then a single font collection
+file will be written.  Otherwise if it contains a %-format string then
+each output file will be named either by the font's name (%s) or a
+sequence number starting with zero.
+
 `--monospace`
-: When inserting the digit-grouping separators, keep the same spacing as
-  the number would have had without those insertions.  This is necessary
-  to maintain the expected layout in monospaced type.  Digits are pinched
-  together slightly to make extra room where needed.
-: This may look a bit rough, and might need some extra tinkering with
-  other settings to get it to look right and to work well with some
-  softare.
+When inserting the digit-grouping separators, keep the same spacing as
+the number would have had without those insertions.  This is necessary
+to maintain the expected layout in monospaced type.  Digits are pinched
+together slightly to make extra room where needed.
+
+This may look a bit rough, and might need some extra tinkering with
+other settings to get it to look right and to work well with some
+softare.
 
 `--terminal`
-: Don't try to emit `GPOS` rules.  Make a whole bunch of extra glyphs at
-  different positions instead.  This is only meaningful in `--monospace`
-  situations, but is necessary when the font will be used by something
-  which caches rendered glyphs without regard to the contextual `GPOS`
-  edits.
+Don't try to emit `GPOS` rules.  Make a whole bunch of extra glyphs at
+different positions instead.  This option implies `--monospace` and is
+necessary when the font will be used by something which caches
+rendered glyphs without regard to the contextual `GPOS` edits.
 
-`--final-rules`
-: By default the new font rules are inserted before pre-existing rules.
-  Some of the changes this causes might interfere with those existing
-  rules (stylistic sets, etc.).  With this switch try putting them at the
-  end, instead.  This can cause a permutation explosion of glyph
-  modifications to account for the substitutions that might have happened,
-  but it's more likely to work properly.
+`--before`
+By default the new font rules are inserted after pre-existing rules
+(stylistic sets, etc.), so as to avoid interfering with them.  This
+can result in a permutation explosion of glyphs, or may cause other
+problems.  Try this to see if it inserting the new rules first works
+better.
 
 `--always-on`
-: By default grouping needs to be enabled via font features like `dgsp`.
-  This enables it under the `calt` feature, which is default-on.
+choose a feature (`dgsp`, `dgap`, `dgco`, etc.) to force on by
+default, rather than needing to configure the font externally.
 
-`--gap-size=GAP_SIZE`
-: Fiddle with the size of the separator.  By default it tries to
-  duplicate the width of a thin space, or a comma, or a third of the width
-  of a zero.  Whatever it finds first.  The units vary by font file, so
-  just fiddle with it until it looks right.
+`--huddle`
+Squeeze the grouped digits together symmetrically, to try to avoid
+moving them too far and causing clipping in some terminals.  This can
+cause irregular alignment in the surrounding thousand separators.
+
+`--gap-size`
+Fiddle with the size of the separator.  By default it tries to
+duplicate the width of a thin space, or a comma, or a third of the width
+of a zero.  Whatever it finds first.  The units vary by font file, so
+just fiddle with it until it looks right.
+
+`--no-rename`
+Don't modify the font name.
+
+`--rename`
+Modify the font name by adding `DG` (or the specified suffix) to the
+end of the first word.
 
 
-[fontforge]: <https://fontforge.org/>
+## other things to try
+
+[FontTools] has some commands to optimise tables and merge fonts.  Maybe
+they'll have some positive impact on the output:
+
+`fonttools otlLib.optimize input.ttf -o output.ttf`
+
+`fonttools ttLib in1.ttf in2.ttf in3.ttf -o output.ttc`
+
+[FontTools]: <https://github.com/fonttools/fonttools>
+[FontForge]: <https://fontforge.org/>
