@@ -213,6 +213,7 @@ def patch_a_font(font, monospace, terminal, before, gap_size, huddle):
         'xx': collect_equivalents(font, 'bBoOxX', not before),
         'dot': collect_equivalents(font, '.', not before),
         'comma': collect_equivalents(font, ',', not before),
+        'hash': collect_equivalents(font, '#', not before),
         'dotsep5': dsep_group | {'thsp.sep5','thsp.comma5','thsp.apostrophe5','thsp.dot5'},
     }
     for name in adjustments:
@@ -294,7 +295,7 @@ def patch_a_font(font, monospace, terminal, before, gap_size, huddle):
     new_glyph_rule('capture_avoid', 'gsub_multiple')
     # And a rule to remove those marks
     new_glyph_rule('release_digit', 'gsub_ligature')
-    new_glyph_rule('nop', 'gsub_single')
+    new_glyph_rule('ignore', 'gsub_single')
     for g in hex_group:
         # Arguments for gsub_multiple and gsub_ligature rules look the same,
         # but they have opposing substitution rules.
@@ -304,6 +305,7 @@ def patch_a_font(font, monospace, terminal, before, gap_size, huddle):
         font[g].addPosSub('capture_avoid', (g, 'thsp.avoid'))
         for cap in capture_group:
             font[g].addPosSub('release_digit', (g, cap))
+        font[g].addPosSub('ignore', g)
 
     # A rule to insert separator over capture.
     new_glyph_rule('insert_separator', 'gsub_single')
@@ -313,7 +315,7 @@ def patch_a_font(font, monospace, terminal, before, gap_size, huddle):
 
     # Capture hexadecimal generously if cofigured to do so
     new_lookup('capture_as_hex', 'gsub_contextchain', Features.HEXADECIMAL)
-    new_coverage('{hex} | {hex} @<capture_4digit> | {hex} {hex} {hex}')
+    new_coverage('| {hex} @<capture_4digit> | {hex} {hex} {hex} {hex}')
 
     new_lookup('comma_as_decimal', 'gsub_contextchain', Features.DECIMAL_COMMA)
     # if it's `n,nnnn` that's a decimal number
@@ -322,8 +324,8 @@ def patch_a_font(font, monospace, terminal, before, gap_size, huddle):
     # otherwise if it's `,nnnnn` it's not clear what it is, so avoid it.
     new_coverage(       '{comma} | {dec} @<capture_avoid> | {dec} {dec} {dec}')
     # and we switch off support for decimal dot, while we're here.
-    new_coverage(  '{cap3} {dot} | {dec} @<capture_avoid> | {dec} {dec} {dec}')
     new_coverage(   '{dec} {dot} | {dec} @<capture_avoid> | {dec} {dec} {dec}')
+    new_coverage(  '{cap3} {dot} | {dec} @<capture_avoid> | {dec} {dec} {dec}')
 
     # Captures for all the different digit types
     new_lookup('capture_numbers', 'gsub_contextchain')
@@ -336,17 +338,25 @@ def patch_a_font(font, monospace, terminal, before, gap_size, huddle):
     # otherwise if it's `.nnnnn` it's not clear what it is, so avoid it.
     new_coverage(       '{dot} | {dec} @<capture_avoid> | {dec} {dec} {dec}')
 
+    # Try to avoid #xxxxxx because it's probably a colour code.
+    new_coverage(      '{hash} | {hex} @<capture_3digit> | {hex} {hex} {hex} {hex} {hex} {hex}')
+    new_coverage(      '{hash} | {hex} @<capture_avoid>  | {hex} {hex} {hex} {hex} {hex}')
+
     ## TODO: consider: excluding `x` in middle of number (is it `XXXxYYY`?)
     # This is already partially-implemented in that the capture will break the
     # `0x` match.
-    ## TODO: consider: excluding `#xxxxxx[^x]` because that's a colour code, or
-    # break it into bytes.
     ## TODO: consider `'hxxx` for Verilog, `16#xxx` for VHDL, sh, Ada, etc..
     new_coverage( '{zero} {xx} | {hex} @<capture_4digit> | {hex} {hex} {hex} {hex}')
-    new_coverage(       '{dec} | {dec} @<capture_3digit> | {dec} {dec} {dec}')
+    # Only put the decimal capture at the _first_ decimal digit in a number.
+    new_coverage(       '{dec} | {dec} @<ignore>         | {dec} {dec} {dec} {dec}')
+    new_coverage(    '{anycap} | {dec} @<ignore>         | {dec} {dec} {dec} {dec}')
+    new_coverage(             '| {dec} @<capture_3digit> | {dec} {dec} {dec} {dec}')
+
+    # Propagate the captures planted above to the end of the match
+    new_lookup('capture_sweep', 'gsub_contextchain')
 
     # avoid doubling up on captures (can happen when using extra features)...
-    new_coverage('{anycap} | {hex} @<nop> | {anycap}')
+    new_coverage('{anycap} | {hex} @<ignore> | {anycap}')
     # and then fill everything following a capture to match that type
     new_coverage('{cap3} | {dec} @<capture_3digit> |')
     new_coverage('{cap4} | {hex} @<capture_4digit> |')
