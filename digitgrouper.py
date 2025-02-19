@@ -80,8 +80,19 @@ def find_first(font, chars):
 
 
 def find_gap_size(font, gap_size):
+    size_of_0 = font[ord('0')].width
+
     with contextlib.suppress(ValueError):
         result = int(gap_size)
+        if result > 0:
+            return result
+
+    with contextlib.suppress(ValueError):
+        if gap_size.endswith('%'):
+            scale = int(gap_size[:-1]) * 0.01
+        else:
+            scale = float(gap_size)
+        result = int(size_of_0 * scale)
         if result > 0:
             return result
 
@@ -91,9 +102,8 @@ def find_gap_size(font, gap_size):
 
     # if suggested gap size is the size of a 0 it's probably
     # a monospaced font, so use the default monospace gap.
-    size_of_0 = font[ord('0')].width
     if gap_size > size_of_0 // 2:
-        gap_size = size_of_0 // 3
+        gap_size = size_of_0 // 4
     return gap_size
 
 
@@ -305,7 +315,7 @@ def patch_a_font(font, monospace, terminal, before, gap_size, huddle):
         font[g].addPosSub('capture_avoid', (g, 'thsp.avoid'))
         for cap in capture_group:
             font[g].addPosSub('release_digit', (g, cap))
-        font[g].addPosSub('ignore', g)
+        font[g].addPosSub('ignore', g)  # is this needed?
 
     # A rule to insert separator over capture.
     new_glyph_rule('insert_separator', 'gsub_single')
@@ -329,6 +339,18 @@ def patch_a_font(font, monospace, terminal, before, gap_size, huddle):
 
     # Captures for all the different digit types
     new_lookup('capture_numbers', 'gsub_contextchain')
+    # first flow continue any numbers that are already in progress,
+    # but avoid doubling up on captures (can happen when using extra features)...
+    new_coverage('{anycap} | {hex} @<ignore> | {anycap}')
+    # and then fill everything following a capture to match that type
+    new_coverage('{cap3} | {dec} @<capture_3digit> |')
+    new_coverage('{cap4} | {hex} @<capture_4digit> |')
+    new_coverage('{cap5} | {dec} @<capture_5digit> |')
+    new_coverage('{avoid} | {hex} @<capture_avoid> |')
+
+    # Try to avoid #xxxxxx because it's probably a colour code.
+    new_coverage(      '{hash} | {dec} @<capture_3digit> | {dec} {dec} {dec} {dec} {dec} {dec}')
+    new_coverage(      '{hash} | {hex} @<capture_avoid>  | {hex} {hex} {hex} {hex} {hex}')
 
     # if it's `..nnnnn`, that's probably an integer following a range.
     new_coverage( '{dot} {dot} | {dec} @<capture_3digit> | {dec} {dec} {dec} {dec}')
@@ -338,30 +360,13 @@ def patch_a_font(font, monospace, terminal, before, gap_size, huddle):
     # otherwise if it's `.nnnnn` it's not clear what it is, so avoid it.
     new_coverage(       '{dot} | {dec} @<capture_avoid> | {dec} {dec} {dec}')
 
-    # Try to avoid #xxxxxx because it's probably a colour code.
-    new_coverage(      '{hash} | {hex} @<capture_3digit> | {hex} {hex} {hex} {hex} {hex} {hex}')
-    new_coverage(      '{hash} | {hex} @<capture_avoid>  | {hex} {hex} {hex} {hex} {hex}')
-
     ## TODO: consider: excluding `x` in middle of number (is it `XXXxYYY`?)
     # This is already partially-implemented in that the capture will break the
     # `0x` match.
     ## TODO: consider `'hxxx` for Verilog, `16#xxx` for VHDL, sh, Ada, etc..
     new_coverage( '{zero} {xx} | {hex} @<capture_4digit> | {hex} {hex} {hex} {hex}')
     # Only put the decimal capture at the _first_ decimal digit in a number.
-    new_coverage(       '{dec} | {dec} @<ignore>         | {dec} {dec} {dec} {dec}')
-    new_coverage(    '{anycap} | {dec} @<ignore>         | {dec} {dec} {dec} {dec}')
     new_coverage(             '| {dec} @<capture_3digit> | {dec} {dec} {dec} {dec}')
-
-    # Propagate the captures planted above to the end of the match
-    new_lookup('capture_sweep', 'gsub_contextchain')
-
-    # avoid doubling up on captures (can happen when using extra features)...
-    new_coverage('{anycap} | {hex} @<ignore> | {anycap}')
-    # and then fill everything following a capture to match that type
-    new_coverage('{cap3} | {dec} @<capture_3digit> |')
-    new_coverage('{cap4} | {hex} @<capture_4digit> |')
-    new_coverage('{cap5} | {dec} @<capture_5digit> |')
-    new_coverage('{avoid} | {hex} @<capture_avoid> |')
 
     # Convert every nth capture into a digit group
     new_lookup('reflow_numbers_rev', 'gsub_reversecchain')
